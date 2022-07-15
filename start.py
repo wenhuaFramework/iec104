@@ -84,13 +84,13 @@ rtn1 = parse_data(hex_str)
 hex_str = '682a080004000f04250001001964001ea60000001a640000000000011b6400ac3a0000021c64000000000003'
 rtn2 = parse_data(hex_str)
 key_values = rtn1 | rtn2
-#print(key_values)
+print(key_values)
 
 sorted_keys = sorted(key_values)
 sorted_values = []
 for i in sorted_keys:
     sorted_values.append(key_values[i])
-#print(sorted_values)
+print(sorted_values)
 cn_names = []
             
 cf = load_ini()

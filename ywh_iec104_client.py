@@ -5,6 +5,7 @@ import requests
 import json
 import configparser
 import os
+import time
 
 class iec104_tcp_client():
     Tx = 0
@@ -20,8 +21,8 @@ class iec104_tcp_client():
 
     #连接
     def connect(self):
-        self.targetip = self.cf.get_value('SETUP', 'ip')
-        self.port = self.cf.get_value('SETUP', 'port')
+        self.targetip = self.get_value('SETUP', 'ip')
+        self.port = int(self.get_value('SETUP', 'port'))
         # socket.AF_INET服务器之间网络通信
         # socket.SOCK_STREAM 流式socket , for TCP
         # 协议编号（默认为0）
@@ -117,7 +118,7 @@ class iec104_tcp_client():
     #开始执行
     def start(self):
         self.is_begin = True
-        while True:
+        while not self.is_over:
             if self.is_begin:
                 # 1、发送启动帧，首次握手（U帧）680407000000
                 cmd = "68 04 07 00 00 00"
@@ -161,13 +162,11 @@ class iec104_tcp_client():
             print('======收到测试帧，应答U帧=======')
         elif hex_str == '68040b000000':
             print('=========收到启动确认帧68 04 0b 00 00 00==========')
-            print('=========发送电度总召帧68 0e 04 00 0e 00 65 01 06 00 01 00 00 00 00 45==========')
             #3、68（启动符）0E（长度）04  00（发送序号）0E  00（接收序号）65（类型标示）01（可变结构限定词）06  00（传输原因）01  00（公共地址）00 00 00（信息体地址）45（QCC）
             tx = self.getHexTx()  #发送序号
             rx = self.getHexRx()  #接收序号
             cmd = '68 0e ' + tx + ' ' + rx + ' 65 01 06 00 01 00 00 00 00 45'
-            print('00000000000000000000000000000')
-            print(cmd)
+            print('=========发送电度总召帧' + cmd + '==========')
             packet = self.buildpacket(cmd, 'I')
             self.send(packet, 'I')
         else:
@@ -183,11 +182,12 @@ class iec104_tcp_client():
             #接收电度总召唤确认
             #68（启动符）0E（长度）10  00（发送序号）06  00（接收序号）65（类型标示）01（可变结构限定词）07  00（传输原因）01  00（公共地址）00 00 00（信息体地址）45（QCC）
             print('======接收电度总召唤确认=========')
-            rx = self.getHexRx()  #接收序号
-            cmd = '68 04 01 00 ' + rx  #应答S帧
-            packet = self.buildpacket(cmd, 'S')
-            print('========应答S帧=========')
-            self.send(packet, 'S')
+            # rx = self.getHexRx()  #接收序号
+            # cmd = '68 04 01 00 ' + rx  #应答S帧
+            # packet = self.buildpacket(cmd, 'S')
+            # print('========应答S帧=========>' + cmd)
+            # self.send(packet, 'S')
+            # time.sleep(0.2)
         elif len == '0e' and type == '65' and cause == '0a00':
             #接收结束电度总召唤帧
             #68（启动符）0E（长度）14  00（发送序号）06  00（接收序号）65（类型标示）01（可变结构限定词）0a  00（传输原因）01  00（公共地址）00 00 00（信息体地址）45（QCC）
@@ -195,18 +195,22 @@ class iec104_tcp_client():
             rx = self.getHexRx()  #接收序号
             cmd = '68 04 01 00 ' + rx  #应答S帧
             packet = self.buildpacket(cmd, 'S')
-            print('========应答S帧=========')
+            print('========应答S帧=========>' + cmd)
             self.send(packet, 'S')
+            time.sleep(0.5)
             self.is_over = True
+            self.quit()
             self.submit()  #收到电度总召结束帧后再提交数据到服务器
         elif type == '0f':
             print('======接收电度数据=========')
             self.parse_data(hex_str)
-            rx = self.getHexRx()  #接收序号
-            cmd = '68 04 01 00 ' + rx  #应答S帧
-            packet = self.buildpacket(cmd, 'S')
-            print('========应答S帧=========')
-            self.send(packet, 'S')
+
+            # rx = self.getHexRx()  #接收序号
+            # cmd = '68 04 01 00 ' + rx  #应答S帧
+            # packet = self.buildpacket(cmd, 'S')
+            # print('========应答S帧=========>' + cmd)
+            # self.send(packet, 'S')
+            # time.sleep(0.2)
 
     #发送报文
     def send(self, packet, type='S'):
@@ -260,7 +264,7 @@ class iec104_tcp_client():
 
     #提交到远程服务器
     def submit(self):
-        url = self.cf.get_value('SETUP', 'url')
+        url = self.get_value('SETUP', 'url')
 
         #配置文件读取相应中文名和系数
         cn_names = []
@@ -274,31 +278,37 @@ class iec104_tcp_client():
 
         #排序读取到的数据
         sorted_keys = sorted(self.info_list)
+        print('数据点位排序后的值列表')
+        print(sorted_keys)
         sorted_values = []
-        for i in sorted_keys:
-            sorted_values.append(key_values[i])
-            
-        i = 0
-        params = {}
-        input = []
-        for item in sorted_values:
-            temp = {}
-            temp['cn_name'] = cn_names[i]['name']
-            temp['address'] = item['addr']
-            temp['value'] = item['value']
-            temp['actual_value'] = item['value'] * float(cn_names[i]['factor'])
-            temp['quality'] = item['quality']
-            temp['factor'] = cn_names[i]['factor']
-            input.append(temp)
-            i = i + 1
+        if len(key_values) == len(sorted_keys):
+            for i in sorted_keys:
+                sorted_values.append(self.info_list[i])
+                
+            i = 0
+            params = {}
+            input = []
+            for item in sorted_values:
+                temp = {}
+                temp['cn_name'] = cn_names[i]['name']
+                temp['address'] = item['addr']
+                temp['value'] = item['value']
+                temp['actual_value'] = item['value'] * float(cn_names[i]['factor'])
+                temp['quality'] = item['quality']
+                temp['factor'] = cn_names[i]['factor']
+                input.append(temp)
+                i = i + 1
 
-        params['input'] = json.dumps(input)
-        response = requests.post(url, data=params)
-        json_data = json.loads(response.text)
-        if json_data and json_data['message']:
-            print(json_data['message'])
+            print('----------------------------')
+            params['input'] = json.dumps(input)
+            response = requests.post(url, data=params)
+            json_data = json.loads(response.text)
+            if json_data and json_data['message']:
+                print(json_data['message'])
+            else:
+                print('未知错误')
         else:
-            print('未知错误')
+            print('数据匹配不上')
         
 
 if __name__ == "__main__":
