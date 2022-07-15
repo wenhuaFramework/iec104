@@ -188,6 +188,7 @@ class iec104_tcp_client():
             # print('========应答S帧=========>' + cmd)
             # self.send(packet, 'S')
             # time.sleep(0.2)
+            print('-------------------')
         elif len == '0e' and type == '65' and cause == '0a00':
             #接收结束电度总召唤帧
             #68（启动符）0E（长度）14  00（发送序号）06  00（接收序号）65（类型标示）01（可变结构限定词）0a  00（传输原因）01  00（公共地址）00 00 00（信息体地址）45（QCC）
@@ -211,6 +212,7 @@ class iec104_tcp_client():
             # print('========应答S帧=========>' + cmd)
             # self.send(packet, 'S')
             # time.sleep(0.2)
+            print('-------------------')
 
     #发送报文
     def send(self, packet, type='S'):
