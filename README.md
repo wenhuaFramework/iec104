@@ -1,5 +1,5 @@
 # IEC104TCP
-IEC104 client and server simulator
+IEC104 client simulator
 
 在前人的基础上  我自己写了一个类
 
