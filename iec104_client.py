@@ -6,6 +6,22 @@ import json
 import configparser
 import os
 import time
+import threading
+
+class updataThreading(threading.Thread):
+    def __init__(self, url, data):
+        super(updataThreading, self).__init__()
+        self.url = url
+        self.data = data
+
+    # 线程要运行的代码
+    def run(self):
+        response = requests.post(self.url, data=self.data)
+        json_data = json.loads(response.text)
+        if json_data and json_data['message']:
+            print(json_data['message'])
+        else:
+            print('未知错误')
 
 class iec104_tcp_client():
     Tx = 0
@@ -130,23 +146,27 @@ class iec104_tcp_client():
                 self.send(packet, 'U')
                 self.is_begin = False
                 print('=========发送启动帧68 04 07 00 00 00=========')
-            
-            output = self._socket.recv(1024)
-            hex_str = binascii.b2a_hex(output).decode('unicode_escape')  # 二进制（bytes）转换为十六进制（hex）
-            print('=========收到16进制报文=========')
-            print(hex_str)
-            # 2、接收服务端响应的启动确认帧 68040B000000
-            if len(hex_str) == 12:
-                #U帧和S帧
-                if hex_str.find('68040100') != -1:
-                    #S帧
-                    self.s_frame(hex_str)
+
+            try:
+                output = self._socket.recv(1024)
+                hex_str = binascii.b2a_hex(output).decode('unicode_escape')  # 二进制（bytes）转换为十六进制（hex）
+                print('=========收到16进制报文=========')
+                print(hex_str)
+                # 2、接收服务端响应的启动确认帧 68040B000000
+                if len(hex_str) == 12:
+                    #U帧和S帧
+                    if hex_str.find('68040100') != -1:
+                        #S帧
+                        self.s_frame(hex_str)
+                    else:
+                        #U帧
+                        self.u_frame(hex_str)
                 else:
-                    #U帧
-                    self.u_frame(hex_str)
-            else:
-                #I帧
-                self.i_frame(hex_str)
+                    #I帧
+                    self.i_frame(hex_str)
+            except Exception as e:
+                print('=========Exception=========')
+                print(str(e))
 
 
     #S帧回调
@@ -199,7 +219,7 @@ class iec104_tcp_client():
             packet = self.buildpacket(cmd, 'S')
             print('========应答S帧=========>' + cmd)
             self.send(packet, 'S')
-            time.sleep(0.5)
+            time.sleep(1)
             self.is_over = True
             self.quit()
             self.submit()  #收到电度总召结束帧后再提交数据到服务器
@@ -304,12 +324,11 @@ class iec104_tcp_client():
 
             print('----------------------------')
             params['input'] = json.dumps(input)
-            response = requests.post(url, data=params)
-            json_data = json.loads(response.text)
-            if json_data and json_data['message']:
-                print(json_data['message'])
-            else:
-                print('未知错误')
+            params['factory'] = 'yongqiang2'
+
+            t1 = updataThreading(url, params)
+            t1.start()
+            
         else:
             print('数据匹配不上')
         
