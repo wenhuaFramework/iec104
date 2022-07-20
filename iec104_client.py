@@ -331,8 +331,8 @@ class iec104_tcp_client():
 
 if __name__ == "__main__":
     try:
-        client = iec104_tcp_client('master')
+        client = iec104_tcp_client('master') #主机
         client.start()
     except Exception as e:
-        client = iec104_tcp_client('slave')
+        client = iec104_tcp_client('slave')  #备机
         client.start()
