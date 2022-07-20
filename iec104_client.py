@@ -147,26 +147,22 @@ class iec104_tcp_client():
                 self.is_begin = False
                 print('=========发送启动帧68 04 07 00 00 00=========')
 
-            try:
-                output = self._socket.recv(1024)
-                hex_str = binascii.b2a_hex(output).decode('unicode_escape')  # 二进制（bytes）转换为十六进制（hex）
-                print('=========收到16进制报文=========')
-                print(hex_str)
-                # 2、接收服务端响应的启动确认帧 68040B000000
-                if len(hex_str) == 12:
-                    #U帧和S帧
-                    if hex_str.find('68040100') != -1:
-                        #S帧
-                        self.s_frame(hex_str)
-                    else:
-                        #U帧
-                        self.u_frame(hex_str)
+            output = self._socket.recv(1024)
+            hex_str = binascii.b2a_hex(output).decode('unicode_escape')  # 二进制（bytes）转换为十六进制（hex）
+            print('=========收到16进制报文=========')
+            print(hex_str)
+            # 2、接收服务端响应的启动确认帧 68040B000000
+            if len(hex_str) == 12:
+                #U帧和S帧
+                if hex_str.find('68040100') != -1:
+                    #S帧
+                    self.s_frame(hex_str)
                 else:
-                    #I帧
-                    self.i_frame(hex_str)
-            except Exception as e:
-                print('=========Exception=========')
-                print(str(e))
+                    #U帧
+                    self.u_frame(hex_str)
+            else:
+                #I帧
+                self.i_frame(hex_str)
 
 
     #S帧回调
@@ -340,6 +336,3 @@ if __name__ == "__main__":
     except Exception as e:
         client = iec104_tcp_client('slave')
         client.start()
-        
-        print('=========Exception=========')
-        print(str(e))
