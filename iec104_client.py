@@ -323,7 +323,7 @@ class iec104_tcp_client():
 
     #加载配置文件
     def load_ini(self):
-        file_name = os.path.dirname(__file__) + '\\config.ini'
+        file_name = os.path.dirname(os.path.abspath(__file__)) + '\\config.ini'
         cf = configparser.ConfigParser()
         cf.read(file_name, encoding='utf-8')
         return cf

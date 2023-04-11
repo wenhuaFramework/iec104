@@ -14,5 +14,5 @@ IEC104 client simulator
      生成 iec104_client.spec文件
      修改其中datas的值，原来值为datas=[]，修改的值datas=[('config.ini', '.')]
 
-2、pyinstaller -F -w iec104_client.spec
+2、pyinstaller iec104_client.spec
      打包生成EXE文件
