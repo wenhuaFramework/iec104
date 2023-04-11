@@ -8,46 +8,69 @@ import os
 import time
 import threading
 
+# 上报数据线程
 class updataThreading(threading.Thread):
-    def __init__(self, url, data):
+    def __init__(self, url, data, server_ip, server_port):
         super(updataThreading, self).__init__()
         self.url = url
         self.data = data
+        self.server_ip = server_ip
+        self.server_port = server_port
 
     # 线程要运行的代码
     def run(self):
-        response = requests.post(self.url, data=self.data)
-        json_data = json.loads(response.text)
-        if json_data and json_data['message']:
-            print(json_data['message'])
-        else:
-            print('未知错误')
+        # response = requests.post(self.url, data=self.data)
+        # json_data = json.loads(response.text)
+        # if json_data and json_data['message']:
+        #     print(json_data['message'])
+        # else:
+        #     print('未知错误')
 
+        self.udp_to_server()
+        print('==========上报结束==========')
+    
+    #将数据通过udp协议传输到网闸外的udp server
+    def udp_to_server(self):
+        server_addr = (self.server_ip, self.server_port)
+        udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        json_string = json.dumps(self.data)
+        udp.sendto(json_string.encode(), server_addr)
+        time.sleep(1)
+        udp.close()
+
+        #print('==========所占的字节数============')
+        #print(len(json_string.encode()))
+
+
+#104协议获取数据封装类
 class iec104_tcp_client():
     Tx = 0
     Rx = 0
     _socket = ''
 
+    #结构函数初始化
     def __init__(self, type='master'):
-        self.is_begin = False
-        self.is_over = False
-        self.type = type
-        self.info_list = {}
-        self.cf = self.load_ini()
+        self.is_begin = False      #是否开始
+        self.is_over = False       #是否结束
+        self.type = type           #是主站还是从站
+        self.info_list = {}        #接收到的信息
+        self.cf = self.load_ini()  #配置分解
         self.connect()
 
-    #连接
+    #建立连接
     def connect(self):
+        #获取参数
         if self.type == 'master':
-            self.targetip = self.get_value('SETUP', 'ip1')
+            self.targetip = self.get_value('SETUP', 'nari_master_ip')  #主IP
         else:
-            self.targetip = self.get_value('SETUP', 'ip2')
-        self.port = int(self.get_value('SETUP', 'port'))
+            self.targetip = self.get_value('SETUP', 'nari_slave_ip')  #备IP
+        self.port = int(self.get_value('SETUP', 'port'))    #端口
+
         # socket.AF_INET服务器之间网络通信
         # socket.SOCK_STREAM 流式socket , for TCP
         # 协议编号（默认为0）
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)  # 创建套接字
-        self._socket.settimeout(5)  # 设置套接字操作的超时期
+        self._socket.settimeout(30)  # 设置套接字操作的超时期
         l_onoff = 1
         l_linger = 0
 
@@ -56,6 +79,41 @@ class iec104_tcp_client():
 
         # 连接到address处的套接字
         self._socket.connect((self.targetip, self.port))
+
+    #开始执行
+    def start(self):
+        self.is_begin = True
+        while not self.is_over:
+            if self.is_begin:
+                # 1、发送启动帧，首次握手（U帧）680407000000
+                cmd = "68 04 07 00 00 00"
+                packet = self.buildpacket(cmd, 'U')
+                self.send(packet, 'U')
+                self.is_begin = False
+                print('=========发送启动帧68 04 07 00 00 00=========')
+
+            output = self._socket.recv(1024)
+            hex_str = binascii.b2a_hex(output).decode('unicode_escape')  # 二进制（bytes）转换为十六进制（hex）
+            #print('=========收到16进制报文=========')
+            #print(hex_str)
+
+            pkgs = self.package(hex_str)  #递归解析报文 并解决可能粘包问题  返回报文列表
+            for item in pkgs:
+                print('返回报文：')
+                print(item)
+                # 2、接收服务端响应的启动确认帧 68040B000000
+                if len(item) == 12:
+                    #U帧和S帧
+                    if item.find('68040100') != -1:
+                        #S帧
+                        self.s_frame(item)
+                    else:
+                        #U帧
+                        self.u_frame(item)
+                else:
+                    #I帧
+                    self.i_frame(item)
+        self.quit()
 
     #退出
     def quit(self):
@@ -135,36 +193,6 @@ class iec104_tcp_client():
         #print(grp)
         return grp
 
-    #开始执行
-    def start(self):
-        self.is_begin = True
-        while not self.is_over:
-            if self.is_begin:
-                # 1、发送启动帧，首次握手（U帧）680407000000
-                cmd = "68 04 07 00 00 00"
-                packet = self.buildpacket(cmd, 'U')
-                self.send(packet, 'U')
-                self.is_begin = False
-                print('=========发送启动帧68 04 07 00 00 00=========')
-
-            output = self._socket.recv(1024)
-            hex_str = binascii.b2a_hex(output).decode('unicode_escape')  # 二进制（bytes）转换为十六进制（hex）
-            print('=========收到16进制报文=========')
-            print(hex_str)
-            # 2、接收服务端响应的启动确认帧 68040B000000
-            if len(hex_str) == 12:
-                #U帧和S帧
-                if hex_str.find('68040100') != -1:
-                    #S帧
-                    self.s_frame(hex_str)
-                else:
-                    #U帧
-                    self.u_frame(hex_str)
-            else:
-                #I帧
-                self.i_frame(hex_str)
-
-
     #S帧回调
     def s_frame(self, hex_str):
         pass
@@ -198,14 +226,14 @@ class iec104_tcp_client():
         if len == '0e' and type == '65' and cause == '0700':
             #接收电度总召唤确认
             #68（启动符）0E（长度）10  00（发送序号）06  00（接收序号）65（类型标示）01（可变结构限定词）07  00（传输原因）01  00（公共地址）00 00 00（信息体地址）45（QCC）
-            print('======接收电度总召唤确认=========')
+            print('=========接收电度总召唤确认=========')
             # rx = self.getHexRx()  #接收序号
             # cmd = '68 04 01 00 ' + rx  #应答S帧
             # packet = self.buildpacket(cmd, 'S')
             # print('========应答S帧=========>' + cmd)
             # self.send(packet, 'S')
             # time.sleep(0.2)
-            print('-------------------')
+            #print('-------------------')
         elif len == '0e' and type == '65' and cause == '0a00':
             #接收结束电度总召唤帧
             #68（启动符）0E（长度）14  00（发送序号）06  00（接收序号）65（类型标示）01（可变结构限定词）0a  00（传输原因）01  00（公共地址）00 00 00（信息体地址）45（QCC）
@@ -215,9 +243,8 @@ class iec104_tcp_client():
             packet = self.buildpacket(cmd, 'S')
             print('========应答S帧=========>' + cmd)
             self.send(packet, 'S')
-            time.sleep(1)
             self.is_over = True
-            self.quit()
+            time.sleep(1)
             self.submit()  #收到电度总召结束帧后再提交数据到服务器
         elif type == '0f':
             print('======接收电度数据=========')
@@ -231,8 +258,37 @@ class iec104_tcp_client():
             # time.sleep(0.2)
             print('-------------------')
 
+    #递归解析报文 解决可能粘包问题
+    def package(self, hex_str):
+        rtn = self.str_substr(hex_str)
+        pkgs = []
+        pkgs.append(rtn[0])
+        if rtn[1]:
+            arr = self.package(rtn[1])
+            pkgs = pkgs + arr
+        return pkgs
+
+    #截取字符串中第一个完整的报文
+    def str_substr(self, hex_str):
+        tmp = []
+        if hex_str.find('68') != -1 and hex_str.find('68') == 0:
+            length = int(hex_str[2:4], 16)
+            if len(hex_str) > (length * 2 + 4):
+                end = length * 2 + 4
+                str = hex_str[0:end]
+                other_str = hex_str[end:]
+                tmp.append(str)
+                tmp.append(other_str)
+            else:
+                str = hex_str[0:]
+                other_str = ''
+                tmp.append(str)
+                tmp.append(other_str)
+        return tmp
+
     #发送报文
     def send(self, packet, type='S'):
+        time.sleep(0.1)
         self._socket.send(packet)
         if type == 'I':
             self.setTx() #发送完之后，发送序号加1
@@ -246,7 +302,7 @@ class iec104_tcp_client():
             i = i + 2
         return int(hex_str, 16)
 
-    #解析报文
+    #转换报文为真实数据
     def parse_data(self, hex_str):
         info_len = hex_str[2:4]  #长度
         type = hex_str[12:14] #类型
@@ -297,8 +353,6 @@ class iec104_tcp_client():
 
         #排序读取到的数据
         sorted_keys = sorted(self.info_list)
-        print('数据点位排序后的值列表')
-        print(sorted_keys)
         sorted_values = []
         if len(key_values) == len(sorted_keys):
             for i in sorted_keys:
@@ -309,20 +363,22 @@ class iec104_tcp_client():
             input = []
             for item in sorted_values:
                 temp = {}
-                temp['cn_name'] = cn_names[i]['name']
+                #temp['cn_name'] = cn_names[i]['name']
                 temp['address'] = item['addr']
                 temp['value'] = item['value']
-                temp['actual_value'] = item['value'] * float(cn_names[i]['factor'])
-                temp['quality'] = item['quality']
-                temp['factor'] = cn_names[i]['factor']
+                #temp['actual_value'] = item['value'] * float(cn_names[i]['factor'])
+                #temp['quality'] = item['quality']
+                #temp['factor'] = cn_names[i]['factor']
                 input.append(temp)
                 i = i + 1
 
             print('----------------------------')
-            params['input'] = json.dumps(input)
-            params['factory'] = 'yongqiang2'
+            params['data'] = json.dumps(input)
+            params['type'] = 'iec104'
 
-            t1 = updataThreading(url, params)
+            server_ip = self.get_value('UDP', 'server_ip')
+            server_port = int(self.get_value('UDP', 'server_port'))
+            t1 = updataThreading(url, params, server_ip, server_port)
             t1.start()
             
         else:
@@ -336,3 +392,4 @@ if __name__ == "__main__":
     except Exception as e:
         client = iec104_tcp_client('slave')  #备机
         client.start()
+        pass
